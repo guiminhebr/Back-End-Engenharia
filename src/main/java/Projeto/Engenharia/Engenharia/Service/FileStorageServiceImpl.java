@@ -1,72 +1,110 @@
 package Projeto.Engenharia.Engenharia.Service;
 
-import java.io.IOException;
-import java.net.MalformedURLException;
-import java.nio.file.FileAlreadyExistsException;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.stream.Stream;
 
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.io.ByteArrayResource;
 import org.springframework.core.io.Resource;
-import org.springframework.core.io.UrlResource;
 import org.springframework.stereotype.Service;
-import org.springframework.util.FileSystemUtils;
 import org.springframework.web.multipart.MultipartFile;
+
+import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
+import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
+import software.amazon.awssdk.core.ResponseBytes;
+import software.amazon.awssdk.core.sync.RequestBody;
+import software.amazon.awssdk.regions.Region;
+import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
+import software.amazon.awssdk.services.s3.model.GetObjectRequest;
+import software.amazon.awssdk.services.s3.model.GetObjectResponse;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
+import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 
 @Service
 public class FileStorageServiceImpl implements FilesStorageService {
-	 private final Path root = Paths.get("uploads");
 
-	  @Override
-	  public void init() {
-	    try {
-	      Files.createDirectories(root);
-	    } catch (IOException e) {
-	      throw new RuntimeException("Could not initialize folder for upload!");
-	    }
-	  }
+    @Value("${aws.bucketName}")
+    private String bucketName;
 
-	  @Override
-	  public void save(MultipartFile file) {
-	    try {
-	      Files.copy(file.getInputStream(), this.root.resolve(file.getOriginalFilename()));
-	    } catch (Exception e) {
-	      if (e instanceof FileAlreadyExistsException) {
-	        throw new RuntimeException("A file of that name already exists.");
-	      }
+    private final S3Client s3Client;
 
-	      throw new RuntimeException(e.getMessage());
-	    }
-	  }
+    public FileStorageServiceImpl(
+            @Value("${aws.accessKeyId}") String accessKey,
+            @Value("${aws.secretKey}") String secretKey,
+            @Value("${aws.region}") String region) {
 
-	  @Override
-	  public Resource load(String filename) {
-	    try {
-	      Path file = root.resolve(filename);
-	      Resource resource = new UrlResource(file.toUri());
+        this.s3Client = S3Client.builder()
+                .region(Region.of(region))
+                .credentialsProvider(StaticCredentialsProvider.create(
+                        AwsBasicCredentials.create(accessKey, secretKey)))
+                .build();
+    }
 
-	      if (resource.exists() || resource.isReadable()) {
-	        return resource;
-	      } else {
-	        throw new RuntimeException("Could not read the file!");
-	      }
-	    } catch (MalformedURLException e) {
-	      throw new RuntimeException("Error: " + e.getMessage());
-	    }
-	  }
+    @Override
+    public void init() {
+        // Não precisa fazer nada — o S3 não precisa de pasta local
+    }
 
-	  @Override
-	  public void deleteAll() {
-	    FileSystemUtils.deleteRecursively(root.toFile());
-	  }
+    @Override
+    public void save(MultipartFile file) {
+        try {
+            s3Client.putObject(
+                    PutObjectRequest.builder()
+                            .bucket(bucketName)
+                            .key(file.getOriginalFilename())
+                            .contentType(file.getContentType())
+                            .build(),
+                    RequestBody.fromInputStream(file.getInputStream(), file.getSize())
+            );
+        } catch (Exception e) {
+            throw new RuntimeException("Erro ao salvar no S3: " + e.getMessage());
+        }
+    }
 
-	  @Override
-	  public Stream<Path> loadAll() {
-	    try {
-	      return Files.walk(this.root, 1).filter(path -> !path.equals(this.root)).map(this.root::relativize);
-	    } catch (IOException e) {
-	      throw new RuntimeException("Could not load the files!");
-	    }
-	  }
+    @Override
+    public boolean delete(String filename) {
+        try {
+            s3Client.deleteObject(DeleteObjectRequest.builder()
+                    .bucket(bucketName)
+                    .key(filename)
+                    .build());
+            return true;
+        } catch (Exception e) {
+            throw new RuntimeException("Erro ao deletar do S3: " + e.getMessage());
+        }
+    }
+
+    @Override
+    public Resource load(String filename) {
+        try {
+            ResponseBytes<GetObjectResponse> obj = s3Client.getObjectAsBytes(
+                    GetObjectRequest.builder()
+                            .bucket(bucketName)
+                            .key(filename)
+                            .build()
+            );
+            return new ByteArrayResource(obj.asByteArray());
+        } catch (Exception e) {
+            throw new RuntimeException("Erro ao carregar do S3: " + e.getMessage());
+        }
+    }
+
+    @Override
+    public void deleteAll() {
+        // Opcional — limpa tudo do bucket se precisar
+    }
+
+    @Override
+    public Stream<Path> loadAll() {
+        ListObjectsV2Response response = s3Client.listObjectsV2(
+                ListObjectsV2Request.builder()
+                        .bucket(bucketName)
+                        .build()
+        );
+        return response.contents().stream()
+                .map(obj -> Paths.get(obj.key()));
+    }
 }

@@ -1,4 +1,5 @@
 package Projeto.Engenharia.Engenharia.Controller;
+import org.springframework.beans.factory.annotation.Value;
 
 
 import java.util.List;
@@ -11,6 +12,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.CrossOrigin;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -29,6 +31,13 @@ public class FilesController {
 	
 	 @Autowired
 	  FilesStorageService storageService;
+	 
+	 
+	 @Value("${aws.bucketName}")
+	    private String bucketName;
+
+	    @Value("${aws.region}")
+	    private String region;
 
 	  @PostMapping("/upload")
 	  public ResponseEntity<ResponseMessage> uploadFile(@RequestParam("file") MultipartFile file) {
@@ -43,13 +52,35 @@ public class FilesController {
 	      return ResponseEntity.status(HttpStatus.EXPECTATION_FAILED).body(new ResponseMessage(message));
 	    }
 	  }
+	  @DeleteMapping("/files/{filename:.+}")
+	  public ResponseEntity<ResponseMessage> deleteFile(@PathVariable String filename) {
+	    String message = "";
+	    
+	    try {
+	      boolean existed = storageService.delete(filename);
+	      
+	      if (existed) {
+	        message = "Delete the file successfully: " + filename;
+	        return ResponseEntity.status(HttpStatus.OK).body(new ResponseMessage(message));
+	      }
+	      
+	      message = "The file does not exist!";
+	      return ResponseEntity.status(HttpStatus.NOT_FOUND).body(new ResponseMessage(message));
+	    } catch (Exception e) {
+	      message = "Could not delete the file: " + filename + ". Error: " + e.getMessage();
+	      return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(new ResponseMessage(message));
+	    }
+	  }
+
+	  
+	  
 
 	  @GetMapping("/files")
 	  public ResponseEntity<List<FileInfo>> getListFiles() {
 	    List<FileInfo> fileInfos = storageService.loadAll().map(path -> {
 	      String filename = path.getFileName().toString();
-	      String url = MvcUriComponentsBuilder
-	          .fromMethodName(FilesController.class, "getFile", path.getFileName().toString()).build().toString();
+          String url = "https://" + bucketName + ".s3." + region + ".amazonaws.com/" + filename;
+
 
 	      return new FileInfo(filename, url);
 	    }).collect(Collectors.toList());
