@@ -26,8 +26,8 @@ public class Intervalo {
     private String numeroOs;
 
     private String trecho;
-    private Double kmInicial;
-    private Double kmFinal;
+    private String kmInicial;
+    private String kmFinal;
 
     private LocalDate data;
     private LocalTime inicio;
