@@ -67,19 +67,19 @@ public class Intervalo {
 		this.trecho = trecho;
 	}
 
-	public Double getKmInicial() {
+	public String getKmInicial() {
 		return kmInicial;
 	}
 
-	public void setKmInicial(Double kmInicial) {
+	public void setKmInicial(String kmInicial) {
 		this.kmInicial = kmInicial;
 	}
 
-	public Double getKmFinal() {
+	public String getKmFinal() {
 		return kmFinal;
 	}
 
-	public void setKmFinal(Double kmFinal) {
+	public void setKmFinal(String kmFinal) {
 		this.kmFinal = kmFinal;
 	}
 
